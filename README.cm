@@ -1,0 +1,12 @@
+= Crimson
+
+== Build
+
+#{code
+# build
+nimble build
+
+# build for release
+nimble build -d:release
+#}
+

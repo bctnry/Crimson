@@ -3,6 +3,7 @@ import std/options
 import std/strformat
 import std/sequtils
 import std/strutils
+import std/objectdollar
 
 type
   # NOTE: not used. this was planned for the tag system, which was postponed
@@ -45,7 +46,8 @@ proc `$`*(x: TokenizerAction): string =
 proc `$`*(x: TokenDecl): string =
   let precondStr = if x.precond.isNone(): "" else: "(" & x.precond.get.join(",") & ") "
   let actionStr = if x.action.isNone(): "" else: " {" & x.action.get.mapIt($it).join(",") & "}"
-  return &"{precondstr}{x.name} = <REGEX>{actionStr}"
+  let regexStr = $x.regex
+  return &"{precondstr}{x.name} = {regexStr} {actionStr}"
 
 proc shouldTag*(x: string): TokenizerAction =
   TokenizerAction(taType: TAG, tag: x)

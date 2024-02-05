@@ -6,6 +6,7 @@ import std/unicode
 import std/sequtils
 import std/tables
 import std/strformat
+import std/strutils
 import std/bitops
 
 proc pass1(x: Program): Program =
@@ -25,8 +26,8 @@ proc charToHex(x: char): string =
   let z = x.ord
   let a = z.bitand(0xf0).uint8.rotateRightBits(4)
   let b = z.bitand(0x0f).uint8
-  let ac = if a >= 0x0a: ('a'.ord+a).chr else: ('0'.ord+a).chr
-  let bc = if b >= 0x0a: ('a'.ord+b).chr else: ('0'.ord+b).chr
+  let ac = if a >= 0x0a: ('a'.ord+a-10).chr else: ('0'.ord+a).chr
+  let bc = if b >= 0x0a: ('a'.ord+b-10).chr else: ('0'.ord+b).chr
   return ac & bc
   
 proc encodeRune(x: Rune): string =
@@ -40,14 +41,14 @@ proc encode(x: Instr, intToTokenTypeMapping: TableRef[int,string]): string =
   case x.insType:
     of CHAR:
       &"Instr(insType: CHAR, ch: \"{x.ch.encodeRune}\".toRunes[0])"
-    of CHRANGE:
-      &"Instr(insType: CHRANGE, rst: \"{x.rst.encodeRune}\".toRunes[0], re: \"{x.re.encodeRune}\".toRunes[0])"
     of IN:
       let chsetstr = x.ichset.mapIt(it.encodeRune).join("")
-      &"Instr(insType: IN, ichset: \"{chsetstr}\".toRunes)"
+      let chrangestr = x.ichrange.mapIt("(\""&it[0].encodeRune&"\".toRunes[0], \""&it[1].encodeRune&"\".toRunes[0])").join(",")
+      &"Instr(insType: IN, ichset: \"{chsetstr}\".toRunes, ichrange: @[{chrangestr}])"
     of NOT_IN:
-      let chsetstr = x.ichset.mapIt(it.encodeRune).join("")
-      &"Instr(insType: NOT_IN, ichset: \"{chsetstr}\".toRunes)"
+      let chsetstr = x.nchset.mapIt(it.encodeRune).join("")
+      let chrangestr = x.nchrange.mapIt("(\""&it[0].encodeRune&"\".toRunes[0], \""&it[1].encodeRune&"\".toRunes[0])").join(",")
+      &"Instr(insType: NOT_IN, nchset: \"{chsetstr}\".toRunes, nchrange: @[{chrangestr}])"
     of MATCH:
       &"Instr(insType: MATCH, tag: TOKEN_{intToTokenTypeMapping[x.tag]})"
     of JUMP:
@@ -117,13 +118,12 @@ type
     e: uint
     ttype*: TokenType
 
-proc `$`(x: Token): string =
+proc `$`*(x: Token): string =
   return "Token(" & $x.st & "," & $x.e & "," & $x.ttype & ")"
 
 type
   InstrType = enum
     CHAR
-    CHRANGE
     IN
     NOT_IN
     MATCH
@@ -134,13 +134,12 @@ type
     case insType: InstrType
     of CHAR:
       ch: Rune
-    of CHRANGE:
-      rst: Rune
-      re: Rune
     of IN:
       ichset: seq[Rune]
+      ichrange: seq[(Rune, Rune)]
     of NOT_IN:
       nchset: seq[Rune]
+      nchrange: seq[(Rune, Rune)]
     of MATCH:
       tag: TokenType
     of JUMP:
@@ -193,18 +192,14 @@ proc runVM(prog: seq[Instr], str: string, stp: uint, line: uint, col: uint): Opt
             thread.pc += 1
             thread.strindex += uint(str.runeLenAt(thread.strindex))
             threadPool[1-poolIndex].add(thread)
-          of CHRANGE:
-            if thread.strindex == strLen or str.runeAt(thread.strindex) <% instr.rst or instr.re <% str.runeAt(thread.strindex): break chk
-            if str.runeAt(thread.strindex) in NEWLINE:
-              thread.line += 1
-              thread.col = 0
-            else:
-              thread.col += 1
-            thread.pc += 1
-            thread.strindex += uint(str.runeLenAt(thread.strindex))
-            threadPool[1-poolIndex].add(thread)
           of IN:
-            if thread.strindex == strLen or not (str.runeAt(thread.strindex) in instr.ichset): break chk
+            var chkres = thread.strindex < strLen
+            if not chkres: break chk
+            let currentRune = str.runeAt(thread.strindex)
+            chkres = currentRune in instr.ichset
+            for z in instr.ichrange:
+              chkres = chkres or (z[0] <=% currentRune and currentRune <=% z[1])
+            if not chkres: break chk
             if str.runeAt(thread.strindex) in NEWLINE:
               thread.line += 1
               thread.col = 0
@@ -214,7 +209,13 @@ proc runVM(prog: seq[Instr], str: string, stp: uint, line: uint, col: uint): Opt
             thread.strindex += uint(str.runeLenAt(thread.strindex))
             threadPool[1-poolIndex].add(thread)
           of NOT_IN:
-            if thread.strindex == strLen or str.runeAt(thread.strindex) in instr.ichset: break chk
+            var chkres = thread.strindex < strLen
+            if not chkres: break chk
+            let currentRune = str.runeAt(thread.strindex)
+            chkres = currentRune in instr.ichset
+            for z in instr.ichrange:
+              chkres = chkres or (z[0] <=% currentRune and currentRune <=% z[1])
+            if chkres: break chk
             if str.runeAt(thread.strindex) in NEWLINE:
               thread.line += 1
               thread.col = 0

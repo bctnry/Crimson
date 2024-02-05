@@ -1,0 +1,8 @@
+TEST1 = /a/
+TEST2 = /AbC/
+TEST3 = /\tdef/
+TEST4 = /\/\.\[\]\(\)\\/
+TEST5 = /\x30\u31\x32/
+TEST6 = /(?:D|E|F)/
+TEST7 = /[g-i]/
+TEST8 = /[^j-k]/

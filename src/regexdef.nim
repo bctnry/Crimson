@@ -1,4 +1,6 @@
 import std/unicode
+import std/strutils
+import std/sequtils
 
 type
   RegexType* = enum
@@ -9,9 +11,8 @@ type
     OPTIONAL
     CONCAT
     UNION
-    CHSET    # Character set
-    COMPCHSET    # Complement character set (matches characters that are not in the set)
-    RANGE
+    REGEX_IN
+    REGEX_NOT_IN
   Regex* = ref object
     case regexType*: RegexType
     of EMPTY: nil
@@ -30,12 +31,22 @@ type
       cbody*: seq[Regex]
     of UNION:
       ubody*: seq[Regex]
-    of CHSET:
-      cset*: seq[Rune]
-    of COMPCHSET:
-      ccset*: seq[Rune]
-    of RANGE:
-      rst*: Rune
-      re*: Rune
+    of REGEX_IN:
+      in_chset*: seq[Rune]
+      in_chrange*: seq[(Rune, Rune)]
+    of REGEX_NOT_IN:
+      not_in_chset*: seq[Rune]
+      not_in_chrange*: seq[(Rune, Rune)]
 
+proc `$`*(x: Regex): string =
+  case x.regexType:
+    of EMPTY: ""
+    of CHARACTER: x.ch.toUTF8
+    of STAR: $x.sbody & "*" & (if x.sgreedy: "" else: "?")
+    of PLUS: $x.pbody & "+" & (if x.pgreedy: "" else: "?")
+    of OPTIONAL: $x.obody & "?" & (if x.ogreedy: "" else: "?")
+    of CONCAT: x.cbody.mapIt($it).join("")
+    of UNION: "(?:"&x.ubody.mapIt($it).join("|")&")"
+    of REGEX_IN: "["&x.in_chset.mapIt(it.toUTF8).join("")&x.in_chrange.mapIt(it[0].toUTF8&"-"&it[1].toUTF8).join("")&"]"
+    of REGEX_NOT_IN: "[^"&x.not_in_chset.mapIt(it.toUTF8).join("")&x.not_in_chrange.mapIt(it[0].toUTF8&"-"&it[1].toUTF8).join("")&"]"
     

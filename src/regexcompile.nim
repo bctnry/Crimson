@@ -15,12 +15,6 @@ proc compileRegexMain(x: Regex): seq[Instr] =
     of EMPTY: discard nil
     of CHARACTER:
       res.add(Instr(insType: CHAR, ch: x.ch))
-    of CHSET:
-      res.add(Instr(insType: IN, ichset: x.cset))
-    of COMPCHSET:
-      res.add(Instr(insType: NOT_IN, nchset: x.ccset))
-    of RANGE:
-      res.add(Instr(insType: CHRANGE, rst: x.rst, re: x.re))
     of STAR:
       let e = compileRegexMain(x.sbody)
       let xoff = if x.sgreedy: 1 else: e.len()+1
@@ -103,6 +97,11 @@ proc compileRegexMain(x: Regex): seq[Instr] =
     of CONCAT:
       for i in x.cbody:
         res &= compileRegexMain(i)
+    of REGEX_IN:
+      res.add(Instr(insType: IN, ichset: x.in_chset, ichrange: x.in_chrange))
+    of REGEX_NOT_IN:
+      res.add(Instr(insType: NOT_IN, nchset: x.not_in_chset, nchrange: x.not_in_chrange))
+          
   return res
 
 proc compileRegex*(x: Regex, tag: int): seq[Instr] =

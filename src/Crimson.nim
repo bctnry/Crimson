@@ -70,18 +70,14 @@ proc runVM(prog: seq[Instr], str: string, stp: uint): Option[Token] =
             thread.pc += 1
             thread.strindex += uint(str.runeLenAt(thread.strindex))
             threadPool[1-poolIndex].add(thread)
-          of CHRANGE:
-            if thread.strindex == strLen or str.runeAt(thread.strindex) <% instr.rst or instr.re <% str.runeAt(thread.strindex): break chk
-            if str.runeAt(thread.strindex) in NEWLINE:
-              thread.line += 1
-              thread.col = 0
-            else:
-              thread.col += 1
-            thread.pc += 1
-            thread.strindex += uint(str.runeLenAt(thread.strindex))
-            threadPool[1-poolIndex].add(thread)
           of IN:
-            if thread.strindex == strLen or not (str.runeAt(thread.strindex) in instr.ichset): break chk
+            var chkres = thread.strindex < strLen
+            if not chkres: break chk
+            let currentRune = str.runeAt(thread.strindex)
+            chkres = currentRune in instr.ichset
+            for z in instr.ichrange:
+              chkres = chkres or (z[0] <=% currentRune and currentRune <=% z[1])
+            if not chkres: break chk
             if str.runeAt(thread.strindex) in NEWLINE:
               thread.line += 1
               thread.col = 0
@@ -91,7 +87,13 @@ proc runVM(prog: seq[Instr], str: string, stp: uint): Option[Token] =
             thread.strindex += uint(str.runeLenAt(thread.strindex))
             threadPool[1-poolIndex].add(thread)
           of NOT_IN:
-            if thread.strindex == strLen or str.runeAt(thread.strindex) in instr.ichset: break chk
+            var chkres = thread.strindex < strLen
+            if not chkres: break chk
+            let currentRune = str.runeAt(thread.strindex)
+            chkres = currentRune in instr.ichset
+            for z in instr.ichrange:
+              chkres = chkres or (z[0] <=% currentRune and currentRune <=% z[1])
+            if chkres: break chk
             if str.runeAt(thread.strindex) in NEWLINE:
               thread.line += 1
               thread.col = 0
@@ -106,7 +108,6 @@ proc runVM(prog: seq[Instr], str: string, stp: uint): Option[Token] =
             e = thread.strindex
             line = thread.line
             col = thread.col
-            # echo "match found. throw away: ", threadPool[poolIndex]
             while threadPool[poolIndex].len() > 0: discard threadPool[poolIndex].pop()
           of JUMP:
             let target = thread.pc+instr.offset
@@ -181,10 +182,22 @@ let z4r2 = Regex(regexType: PLUS, pgreedy: true, pbody:
 # echo runVM(z4, "aaa", 0)
 # echo runVM(z4, "b", 0)
 
-echo compileProgram(@[
-# discard compileProgram(@[
-  # TokenDecl(precond: none(seq[string]),
-  makeTokenDecl("BLAH", z4r),
-  makeTokenDecl("ZSSZ", z4r2),
-])
+import std/syncio
+import std/cmdline
+
+let f = open(paramStr(1), fmRead)
+let s = f.readAll()
+f.close()
+import parser
+
+let res = s.parseLexerSource
+echo res
+
+let outputFileName = paramStr(1)&".nim"
+
+let compiled = res.compileProgram
+let r = open(outputFileName, fmWrite)
+r.write(compiled)
+r.flushFile()
+r.close()
 

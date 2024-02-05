@@ -19,19 +19,19 @@ proc compileRegexMain(x: Regex): seq[Instr] =
       let e = compileRegexMain(x.sbody)
       let xoff = if x.sgreedy: 1 else: e.len()+1
       let yoff = if x.sgreedy: e.len()+1 else: 1
-      res.add(Instr(insType: SPLIT, x: xoff, y: yoff))
+      res.add(Instr(insType: SPLIT, target: @[xoff, yoff]))
       res &= e
     of PLUS:
       let e = compileRegexMain(x.pbody)
       let xoff = if x.pgreedy: -e.len() else: 1
       let yoff = if x.pgreedy: 1 else: -e.len()
       res &= e
-      res.add(Instr(insType: SPLIT, x: xoff, y: yoff))
+      res.add(Instr(insType: SPLIT, target: @[xoff, yoff]))
     of OPTIONAL:
       let e = compileRegexMain(x.obody)
       let xoff = if x.ogreedy: 1 else: 1+e.len()
       let yoff = if x.ogreedy: 1+e.len() else: 1
-      res.add(Instr(insType: SPLIT, x: xoff, y: yoff))
+      res.add(Instr(insType: SPLIT, target: @[xoff, yoff]))
       res &= e
       res.add(Instr(insType: JUMP, offset: -1-e.len()))
     of UNION:
@@ -49,31 +49,39 @@ proc compileRegexMain(x: Regex): seq[Instr] =
       #      JMP +1+len(e1)
       #      (e1)
       #  now consider the case (e0|e1|e2):
-      #      SPLIT +1, +1+len(e0)
+      #      SPLIT +1, +1+len(e0)+1, +1+len(e0)+1+len(e1)+1
       #      (e0)
       #      JMP +1+A
-      #          SPLIT +1, +1+len(e1)
       #          (e1)
       #          JMP +1+B
       #          (e2)
-      #  B is obviously len(e2); but A should be 1+len(e1)+1+len(e2). one can
-      #  similarly consider the case (e0|e1|e2|e3), in which the JMP instruc-
-      #  -tions would be:
-      #      JMP +1+1+len(e1)+1+1+len(e2)+1+len(e3)
-      #      JMP +1+1+len(e2)+1+len(e3)
+      #  B is obviously len(e2); but A should be len(e1)+1+len(e2).
+      #  now consider the case (e0|e1|e2|e3):
+      #      SPLIT +1, +1+len(e0)+1, +1+len(e0)+1+len(e1)+1, +1+len(e0)+1+len(e1)+1+len(e2)+1, +1+len(e0)+1+len(e1)+1+len(e2)+1+len(e3)
+      #      (e0)
+      #      JMP +1+A
+      #      (e1)
+      #      JMP +1+B
+      #      (e2)
+      #      JMP +1+C
+      #      (e3)
+      #  C is obviously len(e3), B should be len(e2)+1+len(e3) and A should be len(e1)+1+len(e2)+1+len(e3),
+      #  so the JMP instructions would be:
+      #      JMP +1+len(e1)+1+len(e2)+1+len(e3)
+      #      JMP +1+len(e2)+1+len(e3)
       #      JMP +1+len(e3)
       #  so for a union with n subexpr, the offset for the ith (starting from 0)
       #  JMP would be:
-      #      +1 + (n-i-2)*2 + Sum{j=i+1 -> n-1, len(e_j)}
+      #      +1 + n-i-2 + Sum{j=i+1 -> n-1, len(e_j)}
       #  e.g. the JMP offsets of a union with 3 subexpr would be:
-      #      +1 + 2 + len(e1)+len(e2)
+      #      +1 + 1 + len(e1)+len(e2)
       #      +1 + len(e2)
       #  the JMP offsets of a union with 4 subexpr would be:
-      #      +1 + 4 + len(e1)+len(e2)+len(e3)
-      #      +1 + 2 + len(e2)+len(e3)
+      #      +1 + 2 + len(e1)+len(e2)+len(e3)
+      #      +1 + 1 + len(e2)+len(e3)
       #      +1 + len(e3)
-      #  the offset for the ith (starting from 0) SPLIT is obviously:
-      #      +1, +2+len(e_i)
+      #  the offset for the SPLIT instruction is obviously:
+      #      +1, +1+(len(e0)+1), +1+(len(e0)+1)+(len(e1)+1), +1+(len(e0)+1)+(len(e1)+1)+(len(e2)+1), ...
       #  so we need a rolling sum of x.e.
       else:
         var rollingSumBase = 0
@@ -86,12 +94,15 @@ proc compileRegexMain(x: Regex): seq[Instr] =
           buf.add(r)
           rollingSum.add(rollingSumBase + r.len())
           rollingSumBase = rollingSum[i]
+        var targetOffsetList: seq[int] = @[1]
         for i in 0..<ubodyLen-1:
-          res.add(Instr(insType: SPLIT, x: 1, y: 2+lengths[i]))
+          targetOffsetList.add(targetOffsetList[^1]+1+lengths[i])
+        res.add(Instr(insType: SPLIT, target: targetOffsetList))
+        for i in 0..<ubodyLen-1:
           res &= buf[i]
           res.add(Instr(
             insType: JUMP,
-            offset: 1+(ubodyLen-i-2)*2+rollingSum[rollingSum.len()-1]-rollingSum[i]
+            offset: 1+(ubodyLen-i-2)+rollingSum[rollingSum.len()-1]-rollingSum[i]
           ))
         res &= buf[ubodyLen-1]
     of CONCAT:

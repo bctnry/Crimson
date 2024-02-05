@@ -54,7 +54,7 @@ proc encode(x: Instr, intToTokenTypeMapping: TableRef[int,string]): string =
     of JUMP:
       &"Instr(insType: JUMP, offset: {x.offset})"
     of SPLIT:
-      &"Instr(insType: SPLIT, x: {x.x}, y: {x.y})"
+      &"Instr(insType: SPLIT, target: {x.target})"
     of SAVE:
       &"Instr(insType: SAVE, svindex: {x.svindex})"
 
@@ -80,14 +80,17 @@ proc combineProgram(x: seq[seq[Instr]]): seq[Instr] =
       buf.add(r)
       rollingSum.add(rollingSumBase + r.len())
       rollingSumBase = rollingSum[i]
+    var targetOffsetList: seq[int] = @[1]
     for i in 0..<ubodyLen-1:
-      res.add(Instr(insType: SPLIT, x: 1, y: 2+lengths[i]))
+      targetOffsetList.add(targetOffsetList[^1]+1+lengths[i])
+    res.add(Instr(insType: SPLIT, target: targetOffsetList))
+    for i in 0..<ubodyLen-1:
       res &= buf[i]
       res.add(Instr(
         insType: JUMP,
-        offset: 1+(ubodyLen-i-2)*2+rollingSum[rollingSum.len()-1]-rollingSum[i]
+        offset: 1+(ubodyLen-i-2)+rollingSum[rollingSum.len()-1]-rollingSum[i]
       ))
-      res &= buf[ubodyLen-1]
+    res &= buf[ubodyLen-1]
   return res
 
 proc compileProgram*(x: Program): string =
@@ -102,7 +105,6 @@ proc compileProgram*(x: Program): string =
 import std/strformat
 import std/options
 import std/unicode
-import std/tables
 
 type
   TokenType* = enum
@@ -112,10 +114,10 @@ type
   res &= """
 type
   Token* = ref object
-    line: uint
-    col: uint
-    st: uint
-    e: uint
+    line*: uint
+    col*: uint
+    st*: uint
+    e*: uint
     ttype*: TokenType
 
 proc `$`*(x: Token): string =
@@ -145,8 +147,7 @@ type
     of JUMP:
       offset: int
     of SPLIT:
-      x: int
-      y: int
+      target: seq[int]
     of SAVE:
       svindex: int
 
@@ -212,8 +213,8 @@ proc runVM(prog: seq[Instr], str: string, stp: uint, line: uint, col: uint): Opt
             var chkres = thread.strindex < strLen
             if not chkres: break chk
             let currentRune = str.runeAt(thread.strindex)
-            chkres = currentRune in instr.ichset
-            for z in instr.ichrange:
+            chkres = currentRune in instr.nchset
+            for z in instr.nchrange:
               chkres = chkres or (z[0] <=% currentRune and currentRune <=% z[1])
             if chkres: break chk
             if str.runeAt(thread.strindex) in NEWLINE:
@@ -236,13 +237,11 @@ proc runVM(prog: seq[Instr], str: string, stp: uint, line: uint, col: uint): Opt
             thread.pc = target
             threadPool[1-poolIndex].add(thread)
           of SPLIT:
-            let targetX = thread.pc+instr.x
-            let targetY = thread.pc+instr.y
-            thread.pc = targetX
-            threadPool[1-poolIndex].add(thread)
-            var newth = Thread(pc: targetY, strindex: thread.strindex, line: thread.line, col: thread.col)
-            for z in 0..<20: newth.save[z] = thread.save[z]
-            threadPool[1-poolIndex].add(newth)
+            for offset in instr.target:
+              let t = thread.pc + offset
+              var newth = Thread(pc: t, strindex: thread.strindex, line: thread.line, col: thread.col)
+              for z in 0..<20: newth.save[z] = thread.save[z]
+              threadPool[1-poolIndex].add(newth)
           of SAVE:
             thread.save[instr.svindex] = thread.strindex
             thread.pc += 1

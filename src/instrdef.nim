@@ -24,8 +24,7 @@ type
     of JUMP:
       offset*: int
     of SPLIT:
-      x*: int
-      y*: int
+      target*: seq[int]
     of SAVE:
       svindex*: int
 
@@ -37,6 +36,6 @@ proc `$`*(x: Instr): string =
     of NOT_IN: "NOT_IN " & $x.nchset & ";" & $x.nchrange
     of MATCH: "MATCH " & $x.tag
     of JUMP: "JUMP " & $x.offset
-    of SPLIT: "SPLIT " & $x.x & ", " & $x.y
+    of SPLIT: "SPLIT " & $x.target
     of SAVE: "SAVE " & $x.svindex
     

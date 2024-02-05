@@ -3,7 +3,6 @@ import std/options
 import std/strformat
 import std/sequtils
 import std/strutils
-import std/objectdollar
 
 type
   # NOTE: not used. this was planned for the tag system, which was postponed

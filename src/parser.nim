@@ -11,6 +11,7 @@ import regexdef
 #               | In
 #               | NotIn
 #               | "(?:" Regex ("|" Regex)* ")"
+#               | "{" NAME "}"
 # RegexSegment ::= AtomicRegex ("?" | "*" | "+")?
 # Regex ::= RegexSegment+
 # In ::= "[" (Range|CharOrInEsc) "]"
@@ -259,6 +260,15 @@ proc parseAtomicRegex(x: ParserState): Option[Regex] =
       return none(Regex)
     of '|':  # end of branch.
       return none(Regex)
+    of '{':  # name ref.
+      i += 1
+      x.stp += 1
+      x.col += 1
+      let n = x.skipWhite.takeName
+      if n.isNone: x.raiseErrorWithReason("Invalid syntax for name reference")
+      if not x.skipWhite.expect("}"):
+        x.raiseErrorWithReason("Invalid syntax for name reference")
+      return some(Regex(regexType: NAME_REF, name: n.get))
     else:  # Char.
       let res = some(Regex(regexType: CHARACTER, ch: x.x.runeAt(x.stp)))
       if x.x[x.stp] in "\n\v\f":

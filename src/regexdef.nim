@@ -13,6 +13,7 @@ type
     UNION
     REGEX_IN
     REGEX_NOT_IN
+    NAME_REF
   Regex* = ref object
     case regexType*: RegexType
     of EMPTY: nil
@@ -37,6 +38,8 @@ type
     of REGEX_NOT_IN:
       not_in_chset*: seq[Rune]
       not_in_chrange*: seq[(Rune, Rune)]
+    of NAME_REF:
+      name*: string
 
 proc `$`*(x: Regex): string =
   case x.regexType:
@@ -49,4 +52,5 @@ proc `$`*(x: Regex): string =
     of UNION: "(?:"&x.ubody.mapIt($it).join("|")&")"
     of REGEX_IN: "["&x.in_chset.mapIt(it.toUTF8).join("")&x.in_chrange.mapIt(it[0].toUTF8&"-"&it[1].toUTF8).join("")&"]"
     of REGEX_NOT_IN: "[^"&x.not_in_chset.mapIt(it.toUTF8).join("")&x.not_in_chrange.mapIt(it[0].toUTF8&"-"&it[1].toUTF8).join("")&"]"
+    of NAME_REF: "{"&x.name&"}"
     

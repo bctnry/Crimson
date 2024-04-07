@@ -1,5 +1,4 @@
 import progdef
-import regexdef
 import regexcompile
 import instrdef
 import std/unicode
@@ -8,19 +7,8 @@ import std/tables
 import std/strformat
 import std/strutils
 import std/bitops
-
-proc pass1(x: Program): Program =
-  var d: TableRef[string,seq[Regex]] = newTable[string,seq[Regex]]()
-  for decl in x:
-    if not d.hasKey(decl.name): d[decl.name] = @[]
-    d[decl.name].add(decl.regex)
-  var res: Program = @[]
-  for tokenName, tokenRegexList in d.pairs:
-    res.add(makeTokenDecl(tokenName,if tokenRegexList.len <= 1:
-                                      tokenRegexList[0]
-                                    else:
-                                      Regex(regexType: UNION, ubody: tokenRegexList)))
-  return res
+import std/options
+import regexdef
 
 proc charToHex(x: char): string =
   let z = x.ord
@@ -93,9 +81,89 @@ proc combineProgram(x: seq[seq[Instr]]): seq[Instr] =
     res &= buf[ubodyLen-1]
   return res
 
+proc allRefs(x: Regex): seq[string] =
+  var res: seq[string] = @[]
+  case x.regexType:
+    of STAR:
+      res &= x.sbody.allRefs
+    of PLUS:
+      res &= x.pbody.allRefs
+    of OPTIONAL:
+      res &= x.obody.allRefs
+    of CONCAT:
+      for k in x.cbody:
+        res &= k.allRefs
+    of UNION:
+      for k in x.ubody:
+        res &= k.allRefs
+    of NAME_REF:
+      res.add(x.name)
+    else:
+      discard
+  res
+
+proc detectRefLoop(name: string, body: Regex, pool: var seq[string], x: TableRef[string, Regex]): Option[string] =
+  if name in pool: return some(name)
+  if not x.hasKey(name): raise newException(ValueError, "Undefined name: "&name)
+  let z = body.allRefs
+  pool.add(name)
+  for k in z:
+    if not x.hasKey(k): raise newException(ValueError, "Undefined name reference for "&name&": "&k)
+    let v = k.detectRefLoop(x[k], pool, x)
+    if v.isSome(): return v
+  discard pool.pop()
+  none(string)
+
+proc detectRefLoop(x: Program): Option[string] =
+  var prog = newTable[string,Regex]()
+  for k in x:
+    prog[k.name] = k.regex
+  var pool: seq[string] = @[]
+  for k in x:
+    let s = k.name.detectRefLoop(k.regex, pool, prog)
+    if s.isSome(): return s
+  return none(string)
+
+proc replaceName(regex: Regex, x: TableRef[string, Regex]): Regex =
+  case regex.regexType:
+    of NAME_REF:
+      x[regex.name]
+    else:
+      regex
+
+proc flattenSingle(regex: Regex, x: TableRef[string, Regex]): Regex =
+  if regex.regexType == NAME_REF: return x[regex.name]
+  case regex.regexType:
+    of STAR:
+      regex.sbody = regex.sbody.flattenSingle(x)
+    of PLUS:
+      regex.pbody = regex.pbody.flattenSingle(x)
+    of OPTIONAL:
+      regex.obody = regex.obody.flattenSingle(x)
+    of CONCAT:
+      for i in 0..<regex.cbody.len:
+        regex.cbody[i] = regex.cbody[i].flattenSingle(x)
+    of UNION:
+      for i in 0..<regex.ubody.len:
+        regex.ubody[i] = regex.ubody[i].flattenSingle(x)
+    else:
+      discard
+  return regex
+  
+proc flatten(x: Program): void =
+  var prog = newTable[string,Regex]()
+  for k in x:
+    prog[k.name] = k.regex
+  for k in x:
+    k.regex = k.regex.flattenSingle(prog)
+
 proc compileProgram*(x: Program): string =
   var res: string = ""
-  let program = x.pass1
+  var program = x
+  program.flatten
+  let loopCheckRes = program.detectRefLoop
+  if loopCheckRes.isSome():
+    raise newException(ValueError, "Loop detected for "&loopCheckRes.get)
   let tokenNameList = program.mapIt(it.name)
   let intToTokenNameMapping = newTable[int,string]()
   for i in 0..<program.len:

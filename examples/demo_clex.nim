@@ -6,9 +6,9 @@ import std/unicode
 
 type
   TokenType* = enum
+    TOKEN_TEST1
     TOKEN_TEST2
     TOKEN_TEST3
-    TOKEN_TEST1
 type
   Token* = ref object
     line*: uint
@@ -152,19 +152,25 @@ proc runVM(prog: seq[Instr], str: string, stp: uint, line: uint, col: uint): Opt
     return none(Token)
 
 let machine = @[
-  Instr(insType: SPLIT, target: @[1, 4, 10]),
+  Instr(insType: SPLIT, target: @[1, 5, 10]),
+  Instr(insType: CHAR, ch: "\x61".toRunes[0]),
+  Instr(insType: SPLIT, target: @[-1, 1]),
+  Instr(insType: MATCH, tag: TOKEN_TEST1),
+  Instr(insType: JUMP, offset: 15),
   Instr(insType: NOT_IN, nchset: "".toRunes, nchrange: @[("\x63".toRunes[0], "\x66".toRunes[0])]),
+  Instr(insType: CHAR, ch: "\x61".toRunes[0]),
+  Instr(insType: SPLIT, target: @[-1, 1]),
   Instr(insType: MATCH, tag: TOKEN_TEST2),
   Instr(insType: JUMP, offset: 10),
   Instr(insType: CHAR, ch: "\x63".toRunes[0]),
   Instr(insType: CHAR, ch: "\x64".toRunes[0]),
   Instr(insType: CHAR, ch: "\x65".toRunes[0]),
-  Instr(insType: CHAR, ch: "\x66".toRunes[0]),
-  Instr(insType: MATCH, tag: TOKEN_TEST3),
-  Instr(insType: JUMP, offset: 4),
+  Instr(insType: NOT_IN, nchset: "".toRunes, nchrange: @[("\x63".toRunes[0], "\x66".toRunes[0])]),
   Instr(insType: CHAR, ch: "\x61".toRunes[0]),
   Instr(insType: SPLIT, target: @[-1, 1]),
-  Instr(insType: MATCH, tag: TOKEN_TEST1),
+  Instr(insType: SPLIT, target: @[-3, 1]),
+  Instr(insType: CHAR, ch: "\x66".toRunes[0]),
+  Instr(insType: MATCH, tag: TOKEN_TEST3),
 ]
 
 proc lex*(x: string): seq[Token] =

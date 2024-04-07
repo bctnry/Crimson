@@ -112,7 +112,10 @@ proc compileRegexMain(x: Regex): seq[Instr] =
       res.add(Instr(insType: IN, ichset: x.in_chset, ichrange: x.in_chrange))
     of REGEX_NOT_IN:
       res.add(Instr(insType: NOT_IN, nchset: x.not_in_chset, nchrange: x.not_in_chrange))
-          
+    of NAME_REF:
+      # NOTE: name ref should be resolved before the compiling procedure is called.
+      # if we somehow reached here we have an error.
+      raise newException(ValueError, "Invalid state")
   return res
 
 proc compileRegex*(x: Regex, tag: int): seq[Instr] =

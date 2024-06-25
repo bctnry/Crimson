@@ -1,13 +1,11 @@
 # NOTE: Generated using Crimson. DO NOT DIRECTLY EDIT THIS (UNLESS YOU KNOW WHAT YOU'RE DOING)
 
-import std/strformat
 import std/options
 import std/unicode
 import std/tables
 
 type
   TokenType* = enum
-    TOKEN_TEST1
     TOKEN_TEST2
     TOKEN_TEST3
 type
@@ -18,12 +16,6 @@ type
     e*: uint
     ttype*: TokenType
     capture*: TableRef[string,tuple[st: uint, e: uint]]
-
-proc `$`*(x: Token): string =
-  return "Token(" & $x.st & "," & $x.e & "," & $x.ttype & "," & (if x.capture.isNil:
-                                                                   ""
-                                                                 else:
-                                                                   $x.capture) & ")"
 
 type
   InstrType = enum
@@ -60,26 +52,10 @@ type
     save: seq[uint]
     line: uint
     col: uint
-proc `$`(x: Thread): string =
-  return "Thread(" & $x.pc & "," & $x.strindex & "," & ")"
 
 let NEWLINE = "\n\v\f".toRunes
-
-let combineDict: Table[TokenType, Table[int, string]] = {
-  TOKEN_TEST1: {
-    0: "blah",
-  }.toTable,
-}.toTable
-
 proc combineToken(stp: uint, e: uint, ttype: TokenType, line: uint, col: uint, save: seq[uint]): Token =
-  if not combineDict.hasKey(ttype):
-    return Token(line: line, col: col, st: stp, e: e, ttype: ttype)
-  var captureDict: TableRef[string,tuple[st: uint, e: uint]] = newTable[string,tuple[st: uint, e: uint]]()
-  let tokenCombineDict: Table[int, string] = combineDict[ttype]
-  for i in tokenCombineDict.keys:
-    captureDict[tokenCombineDict[i]] = (st: save[i*2], e: save[i*2+1])
-  return Token(line: line, col: col, st: stp, e: e, ttype: ttype, capture: captureDict)
-
+  return Token(line: line, col: col, st: stp, e: e, ttype: ttype)
 proc runVM(prog: seq[Instr], str: string, stp: uint, line: uint, col: uint): Option[Token] =
   var threadPool: array[2, seq[Thread]] = [@[], @[]]
   var poolIndex: int = 0
@@ -174,13 +150,7 @@ proc runVM(prog: seq[Instr], str: string, stp: uint, line: uint, col: uint): Opt
     return none(Token)
 
 let machine = @[
-  Instr(insType: SPLIT, target: @[1, 7, 16]),
-  Instr(insType: SAVE, svindex: 0),
-  Instr(insType: CHAR, ch: "\x61".toRunes[0]),
-  Instr(insType: SPLIT, target: @[-1, 1]),
-  Instr(insType: SAVE, svindex: 1),
-  Instr(insType: MATCH, tag: TOKEN_TEST1),
-  Instr(insType: JUMP, offset: 23),
+  Instr(insType: SPLIT, target: @[1, 10]),
   Instr(insType: SAVE, svindex: 0),
   Instr(insType: NOT_IN, nchset: "".toRunes, nchrange: @[("\x63".toRunes[0], "\x66".toRunes[0])]),
   Instr(insType: SPLIT, target: @[1, 4]),
@@ -214,7 +184,7 @@ proc lex*(x: string): seq[Token] =
   while stp < lenx:
     let z = runVM(machine, x, stp, line, col)
     if z.isNone():
-      raise newException(ValueError, &"Tokenizing fail at line {line} col {col}")
+      raise newException(ValueError, "Tokenizing fail at line " & $line & " col " & $col)
     let t = z.get()
     res.add(t)
     line = t.line

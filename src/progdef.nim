@@ -11,17 +11,25 @@ type
     name*: string
     regex*: Regex
     retaining*: seq[TokenDeclRetaining]
+    exported*: bool
 
   Program* = seq[TokenDecl]
 
 proc makeTokenDecl*(name: string, regex: Regex): TokenDecl =
   TokenDecl(name: name,
             regex: regex,
-            retaining: @[])
+            retaining: @[],
+            exported: true)
 proc makeTokenDecl*(name: string, regex: Regex, retaining: seq[TokenDeclRetaining]): TokenDecl =
   TokenDecl(name: name,
             regex: regex,
-            retaining: retaining)
+            retaining: retaining,
+            exported: true)
+proc makeTokenDecl*(name: string, regex: Regex, retaining: seq[TokenDeclRetaining], exported: bool): TokenDecl =
+  TokenDecl(name: name,
+            regex: regex,
+            retaining: retaining,
+            exported: exported)
 
 proc `$`*(x: TokenDecl): string =
   let regexStr = $x.regex

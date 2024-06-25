@@ -1,4 +1,4 @@
-TEST1 = /a+/ { 0:blah }
+~TEST1 = /a+/ { 0:blah }
 TEST2 = /[^c-f]{TEST1}*/
 TEST3 = /cde(?:{TEST2})+f/
 

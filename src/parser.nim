@@ -5,14 +5,14 @@ import progdef
 import regexdef
 
 # Program ::= TokenDecl*
-# TokenDecl ::= NAME "=" "/" Regex "/" RetainingClause?
+# TokenDecl ::= "~"? NAME "=" "/" Regex "/" RetainingClause?
 # NAME = /[a-zA-Z_][0-9a-zA-Z_]*/
 # AtomicRegex ::= CharOrNormalEsc
 #               | In
 #               | NotIn
 #               | "(?:" Regex ("|" Regex)* ")"
 #               | "{" NAME "}"
-# RegexSegment ::= AtomicRegex ("?" | "*" | "+")?
+# RegexSegment ::= AtomicRegex ("?" | "*" | "+" | "??" | "*?" | "+?")?
 # RetainingClause ::= "{" NUMBER (":" NAME)? "}"
 # Regex ::= RegexSegment+
 # In ::= "[" (Range|CharOrInEsc) "]"
@@ -313,15 +313,30 @@ proc parseRegexSegment(x: ParserState): Option[Regex] =
     of '*':
       x.col += 1
       x.stp += 1
-      res = Regex(regexType: STAR, sbody: res)
+      var greedy = true
+      if x.stp < lenx and x.x[x.stp] == '?':
+        x.col += 1
+        x.stp += 1
+        greedy = false
+      res = Regex(regexType: STAR, sbody: res, sgreedy: greedy)
     of '+':
       x.col += 1
       x.stp += 1
-      res = Regex(regexType: PLUS, pbody: res)
+      var greedy = true
+      if x.stp < lenx and x.x[x.stp] == '?':
+        x.col += 1
+        x.stp += 1
+        greedy = false
+      res = Regex(regexType: PLUS, pbody: res, pgreedy: greedy)
     of '?':
       x.col += 1
       x.stp += 1
-      res = Regex(regexType: OPTIONAL, obody: res)
+      var greedy = true
+      if x.stp < lenx and x.x[x.stp] == '?':
+        x.col += 1
+        x.stp += 1
+        greedy = false
+      res = Regex(regexType: OPTIONAL, obody: res, ogreedy: greedy)
     else:
       discard
   return some(res)
@@ -376,12 +391,14 @@ proc parseRetainingClause(x: ParserState): Option[seq[TokenDeclRetaining]] =
   return some(retainingClauseList)
   
 proc parseClause(x: ParserState): Option[TokenDecl] =
+  var exported: bool = true
+  if x.skipWhite.expect("~"): exported = false
   let name = x.skipWhite.takeName
   if name.isNone: return none(TokenDecl)
   if not x.skipWhite.expect("="): x.raiseErrorWithReason("Equal sign required but none found.")
   let regex = x.skipWhite.parseRegex
   let retainingClause = x.skipWhite.parseRetainingClause
-  return some(makeTokenDecl(name.get, regex, if retainingClause.isSome: retainingClause.get else: @[]))
+  return some(makeTokenDecl(name.get, regex, if retainingClause.isSome: retainingClause.get else: @[], exported))
   
 proc parseLexerSource*(x: string): Program =
   var res: Program = @[]

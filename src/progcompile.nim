@@ -124,13 +124,6 @@ proc detectRefLoop(x: Program): Option[string] =
     if s.isSome(): return s
   return none(string)
 
-proc replaceName(regex: Regex, x: TableRef[string, Regex]): Regex =
-  case regex.regexType:
-    of NAME_REF:
-      x[regex.name]
-    else:
-      regex
-
 proc flattenSingle(regex: Regex, x: TableRef[string, Regex]): Regex =
   if regex.regexType == NAME_REF: return x[regex.name]
   case regex.regexType:
@@ -160,10 +153,11 @@ proc flatten(x: Program): void =
 proc compileProgram*(x: Program): string =
   var res: string = ""
   var program = x
-  program.flatten
   let loopCheckRes = program.detectRefLoop
   if loopCheckRes.isSome():
     raise newException(ValueError, "Loop detected for "&loopCheckRes.get)
+  program.flatten
+  program = program.filterIt(it.exported)
   let tokenNameList = program.mapIt(it.name)
   let intToTokenNameMapping = newTable[int,string]()
   for i in 0..<program.len:
@@ -189,12 +183,6 @@ type
     e*: uint
     ttype*: TokenType
     capture*: TableRef[string,tuple[st: uint, e: uint]]
-
-proc `$`*(x: Token): string =
-  return "Token(" & $x.st & "," & $x.e & "," & $x.ttype & "," & (if x.capture.isNil:
-                                                                   ""
-                                                                 else:
-                                                                   $x.capture) & ")"
 
 type
   InstrType = enum
@@ -231,25 +219,34 @@ type
     save: seq[uint]
     line: uint
     col: uint
-proc `$`(x: Thread): string =
-  return "Thread(" & $x.pc & "," & $x.strindex & "," & ")"
 
 let NEWLINE = "\n\v\f".toRunes
-
+"""
+  var shouldCombine = false
+  for k in program:
+    if k.retaining.len > 0:
+      shouldCombine = true
+      break
+  if shouldCombine:
+    res &= """
 let combineDict: Table[TokenType, Table[int, string]] = {
 """
-  for k in program:
-    let tt = k.name
-    let retaining = k.retaining
-    if retaining.len > 0:
-      res &= &"  TOKEN_{tt}: " & "{\n"
-      for r in retaining:
-        res &= &"    {r.groupId}: \"{r.groupName}\",\n"
-      res &= "  }.toTable,\n"
-  res &= """
+    for k in program:
+      let tt = k.name
+      let retaining = k.retaining
+      if retaining.len > 0:
+        res &= &"  TOKEN_{tt}: " & "{\n"
+        for r in retaining:
+          res &= &"    {r.groupId}: \"{r.groupName}\",\n"
+        res &= "  }.toTable,\n"
+    res &= """
 }.toTable
-
+"""
+  res &= """
 proc combineToken(stp: uint, e: uint, ttype: TokenType, line: uint, col: uint, save: seq[uint]): Token =
+"""
+  if shouldCombine:
+    res &= """
   if not combineDict.hasKey(ttype):
     return Token(line: line, col: col, st: stp, e: e, ttype: ttype)
   var captureDict: TableRef[string,tuple[st: uint, e: uint]] = newTable[string,tuple[st: uint, e: uint]]()
@@ -257,7 +254,12 @@ proc combineToken(stp: uint, e: uint, ttype: TokenType, line: uint, col: uint, s
   for i in tokenCombineDict.keys:
     captureDict[tokenCombineDict[i]] = (st: save[i*2], e: save[i*2+1])
   return Token(line: line, col: col, st: stp, e: e, ttype: ttype, capture: captureDict)
+"""
+  else:
+    res &= """  return Token(line: line, col: col, st: stp, e: e, ttype: ttype)
+"""
 
+  res &= """
 proc runVM(prog: seq[Instr], str: string, stp: uint, line: uint, col: uint): Option[Token] =
   var threadPool: array[2, seq[Thread]] = [@[], @[]]
   var poolIndex: int = 0

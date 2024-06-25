@@ -1,0 +1,17 @@
+#+TITLE: Crimson
+
+
+** Build
+
+[[https://nim-lang.org][Nim]] v2.0.0+ is needed to build Crimson.
+
+#+BEGIN_SRC shell
+# build
+nimble build
+
+# build for release
+nimble build -d:release
+#+END_SRC
+
+
+

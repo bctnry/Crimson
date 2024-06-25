@@ -5,7 +5,7 @@ import progdef
 import regexdef
 
 # Program ::= TokenDecl*
-# TokenDecl ::= NAME "=" "/" Regex "/"
+# TokenDecl ::= NAME "=" "/" Regex "/" RetainingClause?
 # NAME = /[a-zA-Z_][0-9a-zA-Z_]*/
 # AtomicRegex ::= CharOrNormalEsc
 #               | In
@@ -13,6 +13,7 @@ import regexdef
 #               | "(?:" Regex ("|" Regex)* ")"
 #               | "{" NAME "}"
 # RegexSegment ::= AtomicRegex ("?" | "*" | "+")?
+# RetainingClause ::= "{" NUMBER (":" NAME)? "}"
 # Regex ::= RegexSegment+
 # In ::= "[" (Range|CharOrInEsc) "]"
 # NotIn ::= "[^" (Range|CharOrInEsc) "]"
@@ -41,6 +42,8 @@ proc isNameHeadChar(x: char): bool =
   ('a' <= x and x <= 'z') or ('A' <= x and x <= 'Z') or x == '_'
 proc isNameChar(x: char): bool =
   ('0' <= x and x <= '9') or x.isNameHeadChar
+proc isDigit(x: char): bool =
+  ('0' <= x and x <= '9')
 
 proc takeName(x: ParserState): Option[string] =
   var i = x.stp
@@ -52,6 +55,27 @@ proc takeName(x: ParserState): Option[string] =
   x.col += i-x.stp
   x.stp = i
   return some(name)
+
+proc takeNumber(x: ParserState): Option[string] =
+  var i = x.stp
+  let lenx = x.x.len
+  if i < lenx and x.x[i].isDigit: i += 1
+  else: return none(string)
+  while i < lenx and x.x[i].isDigit: i += 1
+  let numstr = x.x[x.stp..<i]
+  x.col += i - x.stp
+  x.stp = i
+  return some(numstr)
+  
+proc stringToInt(x: string): int =
+  var res = 0
+  var i = 0
+  var lenx = x.len
+  while i < lenx:
+    res *= 10
+    res += ord(x[i]) - ord('0')
+    i += 1
+  return res
 
 proc skipWhite(x: ParserState): ParserState =
   var i = x.stp
@@ -321,12 +345,43 @@ proc parseRegex(x: ParserState): Regex =
   if res.len <= 0: return Regex(regexType: EMPTY)
   else: return Regex(regexType: CONCAT, cbody: res)
 
+proc parseRetainingPair(x: ParserState): Option[TokenDeclRetaining] =
+  let groupIdStr = x.skipWhite.takeNumber
+  if groupIdStr.isNone: return none(TokenDeclRetaining)
+  let groupId = groupIdStr.get.stringToInt
+  if not x.expect(":"): return some((groupId: groupId, groupName: ""))
+  let groupName = x.takeName
+  return some((groupId: groupId, groupName: if groupName.isNone: "" else: groupName.get))
+
+proc parseRetainingClause(x: ParserState): Option[seq[TokenDeclRetaining]] =
+  if not x.skipWhite.expect("{"): return none(seq[TokenDeclRetaining])
+  var retainingClauseList: seq[TokenDeclRetaining] = @[]
+  let z = x.skipWhite.parseRetainingPair
+  if not z.isSome:
+    if not x.expect("}"): x.raiseErrorWithReason("Group saving specification or right brace required but none found.")
+    else: return none(seq[TokenDeclRetaining])
+  else:
+    retainingClauseList.add(z.get)
+  while not x.peek("}"):
+    discard x.skipWhite
+    if x.expect("}"): return some(retainingClauseList)
+    if not x.skipWhite.expect(","): x.raiseErrorWithReason("Comma required but none found")
+    let z = x.skipWhite.parseRetainingPair
+    if not z.isSome:
+      if not x.skipWhite.expect("}"): x.raiseErrorWithReason("Group saving specification or right brace required but none found.")
+      else: return some(retainingClauseList)
+    else:
+      retainingClauseList.add(z.get)
+  discard x.skipWhite.expect("}")
+  return some(retainingClauseList)
+  
 proc parseClause(x: ParserState): Option[TokenDecl] =
   let name = x.skipWhite.takeName
   if name.isNone: return none(TokenDecl)
   if not x.skipWhite.expect("="): x.raiseErrorWithReason("Equal sign required but none found.")
   let regex = x.skipWhite.parseRegex
-  return some(makeTokenDecl(name.get, regex))
+  let retainingClause = x.skipWhite.parseRetainingClause
+  return some(makeTokenDecl(name.get, regex, if retainingClause.isSome: retainingClause.get else: @[]))
   
 proc parseLexerSource*(x: string): Program =
   var res: Program = @[]

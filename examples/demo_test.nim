@@ -6,7 +6,7 @@ import demo_clex
 #     nim c ./examples/demo_test.nim
 #     ./examples/demo_test
 
-let str = "aabaabaaabcdefcdefbb"
+let str = "aabaabaaabakaacdebaaaf"
 let lexRes = str.lex
 for t in lexRes:
   echo t, " ", str[t.st..<t.e]

@@ -9,31 +9,37 @@ import instrdef
 ##
 ##     https://swtch.com/~rsc/regexp/regexp2.html
 ##
-proc compileRegexMain(x: Regex): seq[Instr] =
+proc compileRegexMain(x: Regex, currentSaveId: int): seq[Instr] =
   var res: seq[Instr] = @[]
   case x.regexType:
     of EMPTY: discard nil
     of CHARACTER:
       res.add(Instr(insType: CHAR, ch: x.ch))
     of STAR:
-      let e = compileRegexMain(x.sbody)
-      let xoff = if x.sgreedy: 1 else: e.len()+1
-      let yoff = if x.sgreedy: e.len()+1 else: 1
+      let e = compileRegexMain(x.sbody, currentSaveId)
+      let xoff = if x.sgreedy: 1 else: e.len()+2
+      let yoff = if x.sgreedy: e.len()+2 else: 1
+      # 0       split
+      # 1       body
+      #         ...
+      # e.len   body
+      # e.len+1 jmp 0
+      # e.len+2
       res.add(Instr(insType: SPLIT, target: @[xoff, yoff]))
       res &= e
+      res.add(Instr(insType: JUMP, offset: -e.len()-1))
     of PLUS:
-      let e = compileRegexMain(x.pbody)
+      let e = compileRegexMain(x.pbody, currentSaveId)
       let xoff = if x.pgreedy: -e.len() else: 1
       let yoff = if x.pgreedy: 1 else: -e.len()
       res &= e
       res.add(Instr(insType: SPLIT, target: @[xoff, yoff]))
     of OPTIONAL:
-      let e = compileRegexMain(x.obody)
+      let e = compileRegexMain(x.obody, currentSaveId)
       let xoff = if x.ogreedy: 1 else: 1+e.len()
       let yoff = if x.ogreedy: 1+e.len() else: 1
       res.add(Instr(insType: SPLIT, target: @[xoff, yoff]))
       res &= e
-      res.add(Instr(insType: JUMP, offset: -1-e.len()))
     of UNION:
       let ubodyLen = x.ubody.len()
       if ubodyLen <= 0:
@@ -41,7 +47,7 @@ proc compileRegexMain(x: Regex): seq[Instr] =
       # NOTE: we treat a union length of 1 as the regexp itself;
       #       the regexp (|E) is expressed with Union(Empty,E).
       elif ubodyLen <= 1:
-        res &= compileRegexMain(x.ubody[0])
+        res &= compileRegexMain(x.ubody[0], currentSaveId)
       #  this part is kinda hard to explain. first consider the case (e0|e1).
       #  the output would be:
       #      SPLIT +1, +1+len(e0)
@@ -89,7 +95,7 @@ proc compileRegexMain(x: Regex): seq[Instr] =
         var lengths: seq[int] = @[]
         var buf: seq[seq[Instr]] = @[]
         for i in 0..<ubodyLen:
-          let r = compileRegexMain(x.ubody[i])
+          let r = compileRegexMain(x.ubody[i], currentSaveId)
           lengths.add(r.len())
           buf.add(r)
           rollingSum.add(rollingSumBase + r.len())
@@ -107,7 +113,7 @@ proc compileRegexMain(x: Regex): seq[Instr] =
         res &= buf[ubodyLen-1]
     of CONCAT:
       for i in x.cbody:
-        res &= compileRegexMain(i)
+        res &= compileRegexMain(i, currentSaveId)
     of REGEX_IN:
       res.add(Instr(insType: IN, ichset: x.in_chset, ichrange: x.in_chrange))
     of REGEX_NOT_IN:
@@ -116,13 +122,17 @@ proc compileRegexMain(x: Regex): seq[Instr] =
       # NOTE: name ref should be resolved before the compiling procedure is called.
       # if we somehow reached here we have an error.
       raise newException(ValueError, "Invalid state")
+    of CAPTURE:
+      res.add(Instr(insType: SAVE, svindex: currentSaveId*2))
+      res &= compileRegexMain(x.capbody, currentSaveId+1)
+      res.add(Instr(insType: SAVE, svindex: currentSaveId*2+1))
   return res
 
 proc compileRegex*(x: Regex, tag: int): seq[Instr] =
   var r: seq[Instr] = @[]
-  # r.add(Instr(insType: SAVE, svindex: 0))
-  r &= compileRegexMain(x)
-  # r.add(Instr(insType: SAVE, svindex: 1))
+  r.add(Instr(insType: SAVE, svindex: 0))
+  r &= compileRegexMain(x, 1)
+  r.add(Instr(insType: SAVE, svindex: 1))
   r.add(Instr(insType: MATCH, tag: tag))
   return r
 

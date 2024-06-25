@@ -173,6 +173,7 @@ proc compileProgram*(x: Program): string =
 import std/strformat
 import std/options
 import std/unicode
+import std/tables
 
 type
   TokenType* = enum
@@ -187,9 +188,13 @@ type
     st*: uint
     e*: uint
     ttype*: TokenType
+    capture*: TableRef[string,tuple[st: uint, e: uint]]
 
 proc `$`*(x: Token): string =
-  return "Token(" & $x.st & "," & $x.e & "," & $x.ttype & ")"
+  return "Token(" & $x.st & "," & $x.e & "," & $x.ttype & "," & (if x.capture.isNil:
+                                                                   ""
+                                                                 else:
+                                                                   $x.capture) & ")"
 
 type
   InstrType = enum
@@ -223,18 +228,40 @@ type
   Thread = ref object
     pc: int
     strindex: uint
-    save: array[20, uint]
+    save: seq[uint]
     line: uint
     col: uint
 proc `$`(x: Thread): string =
   return "Thread(" & $x.pc & "," & $x.strindex & "," & ")"
 
 let NEWLINE = "\n\v\f".toRunes
-  
+
+let combineDict: Table[TokenType, Table[int, string]] = {
+"""
+  for k in program:
+    let tt = k.name
+    let retaining = k.retaining
+    if retaining.len > 0:
+      res &= &"  TOKEN_{tt}: " & "{\n"
+      for r in retaining:
+        res &= &"    {r.groupId}: \"{r.groupName}\",\n"
+      res &= "  }.toTable,\n"
+  res &= """
+}.toTable
+
+proc combineToken(stp: uint, e: uint, ttype: TokenType, line: uint, col: uint, save: seq[uint]): Token =
+  if not combineDict.hasKey(ttype):
+    return Token(line: line, col: col, st: stp, e: e, ttype: ttype)
+  var captureDict: TableRef[string,tuple[st: uint, e: uint]] = newTable[string,tuple[st: uint, e: uint]]()
+  let tokenCombineDict: Table[int, string] = combineDict[ttype]
+  for i in tokenCombineDict.keys:
+    captureDict[tokenCombineDict[i]] = (st: save[i*2], e: save[i*2+1])
+  return Token(line: line, col: col, st: stp, e: e, ttype: ttype, capture: captureDict)
+
 proc runVM(prog: seq[Instr], str: string, stp: uint, line: uint, col: uint): Option[Token] =
   var threadPool: array[2, seq[Thread]] = [@[], @[]]
   var poolIndex: int = 0
-  var save: array[2, uint] = [stp, stp]
+  var endThread: Thread = nil
   threadPool[poolIndex].add(Thread(pc: 0, strindex: stp, line: line, col: col))
   let strLen = uint(str.len())
   var e: uint = stp
@@ -299,6 +326,7 @@ proc runVM(prog: seq[Instr], str: string, stp: uint, line: uint, col: uint): Opt
             e = thread.strindex
             line = thread.line
             col = thread.col
+            endThread = thread
             while threadPool[poolIndex].len() > 0: discard threadPool[poolIndex].pop()
           of JUMP:
             let target = thread.pc+instr.offset
@@ -307,18 +335,19 @@ proc runVM(prog: seq[Instr], str: string, stp: uint, line: uint, col: uint): Opt
           of SPLIT:
             for offset in instr.target:
               let t = thread.pc + offset
-              var newth = Thread(pc: t, strindex: thread.strindex, line: thread.line, col: thread.col)
-              for z in 0..<20: newth.save[z] = thread.save[z]
+              var newthSave: seq[uint] = @[]
+              for k in thread.save: newthSave.add(k)
+              var newth = Thread(pc: t, strindex: thread.strindex, line: thread.line, col: thread.col, save: newthSave)
               threadPool[1-poolIndex].add(newth)
           of SAVE:
-            thread.save[instr.svindex] = thread.strindex
+            thread.save.add(thread.strindex)
             thread.pc += 1
             threadPool[1-poolIndex].add(thread)
       j += 1
     while threadPool[poolIndex].len() > 0: discard threadPool[poolIndex].pop()
     poolIndex = 1-poolIndex
   if matched:
-    return some(Token(st: stp, e: e, ttype: ttype, line: line, col: col))
+    return some(combineToken(stp, e, ttype, line, col, endThread.save))
   else:
     return none(Token)
 

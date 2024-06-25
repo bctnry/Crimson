@@ -14,6 +14,7 @@ type
     REGEX_IN
     REGEX_NOT_IN
     NAME_REF
+    CAPTURE
   Regex* = ref object
     case regexType*: RegexType
     of EMPTY: nil
@@ -40,6 +41,8 @@ type
       not_in_chrange*: seq[(Rune, Rune)]
     of NAME_REF:
       name*: string
+    of CAPTURE:
+      capbody*: Regex
 
 proc `$`*(x: Regex): string =
   case x.regexType:
@@ -53,4 +56,5 @@ proc `$`*(x: Regex): string =
     of REGEX_IN: "["&x.in_chset.mapIt(it.toUTF8).join("")&x.in_chrange.mapIt(it[0].toUTF8&"-"&it[1].toUTF8).join("")&"]"
     of REGEX_NOT_IN: "[^"&x.not_in_chset.mapIt(it.toUTF8).join("")&x.not_in_chrange.mapIt(it[0].toUTF8&"-"&it[1].toUTF8).join("")&"]"
     of NAME_REF: "{"&x.name&"}"
+    of CAPTURE: "(" & $x.capbody & ")"
     

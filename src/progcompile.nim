@@ -365,7 +365,7 @@ proc runVM(prog: seq[Instr], str: string, stp: uint, line: uint, col: uint): Opt
     res &= &"  {i.encode(intToTokenNameMapping)},\n"
   res &= "]\n\n"
   res &= """
-proc lex*(x: string): seq[Token] =
+proc lex*(x: string, fileName: string = "*unnamed*"): seq[Token] =
   var res: seq[Token] = @[]
   var line: uint = 0
   var col: uint = 0
@@ -374,7 +374,7 @@ proc lex*(x: string): seq[Token] =
   while stp < lenx:
     let z = runVM(machine, x, stp, line, col)
     if z.isNone():
-      raise newException(ValueError, &"Tokenizing fail at line {line} col {col}")
+      raise newException(ValueError, &"{fileName} ({line+1},{col+1}): Tokenizing failed")
     let t = z.get()
     res.add(t)
     line = t.line

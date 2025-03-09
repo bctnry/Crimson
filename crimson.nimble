@@ -1,11 +1,11 @@
 # Package
 
-version       = "0.1.1"
-author        = "Zahktïn Làhm"
+version       = "0.1.2"
+author        = "Sebastian Zack Tin Lahm-Lee"
 description   = "A new awesome nimble package"
 license       = "GPL-2.0-or-later"
 srcDir        = "src"
-bin           = @["Crimson"]
+bin           = @["crimson"]
 
 
 # Dependencies

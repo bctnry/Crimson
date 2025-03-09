@@ -35,6 +35,9 @@ type
     x: string
     stp: int
 
+proc ended(x: ParserState): bool =
+  x.stp >= x.x.len
+
 proc raiseErrorWithReason(x: ParserState, reason: string): void =
   raise newException(ValueError, &"({x.line},{x.col}) {reason}")
     
@@ -44,6 +47,8 @@ proc isNameChar(x: char): bool =
   ('0' <= x and x <= '9') or x.isNameHeadChar
 proc isDigit(x: char): bool =
   ('0' <= x and x <= '9')
+proc isWhite(x: char): bool {.inline.} =
+  x in " \n\r\v\t\b\f"
 
 proc takeName(x: ParserState): Option[string] =
   var i = x.stp
@@ -80,7 +85,7 @@ proc stringToInt(x: string): int =
 proc skipWhite(x: ParserState): ParserState =
   var i = x.stp
   let lenx = x.x.len
-  while i < lenx and x.x[i] in " \n\r\v\t\b\f":
+  while i < lenx and x.x[i].isWhite:
     if x.x[i] in "\n\v\f":
       x.line += 1
       x.col = 0
@@ -88,6 +93,23 @@ proc skipWhite(x: ParserState): ParserState =
       x.col += 1
     i += 1
   x.stp = i
+  return x
+
+proc skipComment(x: ParserState): ParserState =
+  var i = x.stp
+  let lenx = x.x.len
+  if not (i < lenx and x.x[i] == ';'): return x
+  i += 1
+  x.col += 1
+  while i < lenx and x.x[i] != '\n':
+    i += 1
+    x.col += 1
+  x.stp = i
+  return x
+
+proc skipWhiteAndComment(x: ParserState): ParserState =
+  while (not x.ended()) and (x.x[x.stp].isWhite() or x.x[x.stp] == ';'):
+    discard x.skipWhite().skipComment()
   return x
 
 proc expect(x: ParserState, pat: string): bool =
@@ -180,15 +202,15 @@ proc expectHexDigit(x: ParserState): Option[int] =
                 else:
                   r.ord - upperARune.ord + 10)
   else: return none(int)
-proc parseSingleCharEsc(x: ParserState): Option[Rune] =
-  if not x.expect("\\"): return none(Rune)
+proc parseSingleCharEsc(x: ParserState): Option[seq[Rune]] =
+  if not x.expect("\\"): return none(seq[Rune])
   if x.expect("x"):
     let digit1 = x.expectHexDigit
     let digit2 = x.expectHexDigit
-    if digit1.isNone or digit2.isNone: return none(Rune)
+    if digit1.isNone or digit2.isNone: return none(seq[Rune])
     var z = ""
     z.add((digit1.get*16+digit2.get).chr)
-    return z.toRunes[0].some
+    return some(z.toRunes)
   elif x.expect("u"):
     var codepoint = 0
     while true:
@@ -196,17 +218,18 @@ proc parseSingleCharEsc(x: ParserState): Option[Rune] =
       if digit.isNone: break
       codepoint *= 16
       codepoint += digit.get
-    return cast[Rune](codepoint).some
-  elif x.expect("b"): return some("\b".toRunes[0])
-  elif x.expect("n"): return some("\n".toRunes[0])
-  elif x.expect("t"): return some("\t".toRunes[0])
-  elif x.expect("r"): return some("\r".toRunes[0])
-  elif x.expect("f"): return some("\f".toRunes[0])
-  elif x.expect("v"): return some("\v".toRunes[0])
+    return some(@[cast[Rune](codepoint)])
+  elif x.expect("b"): return some("\b".toRunes)
+  elif x.expect("n"): return some("\n".toRunes)
+  elif x.expect("t"): return some("\t".toRunes)
+  elif x.expect("r"): return some("\r".toRunes)
+  elif x.expect("f"): return some("\f".toRunes)
+  elif x.expect("v"): return some("\v".toRunes)
+  elif x.expect("s"): return some(" \b\n\t\r\f\v".toRunes)
   else:
     let chkres = x.expectIn(".[]()\\*+?/".toRunes)
-    if chkres.isNone: return none(Rune)
-    else: return some(chkres.get)
+    if chkres.isNone: return none(seq[Rune])
+    else: return some(@[chkres.get])
 
 proc takeRune(x: ParserState): Option[Rune] =
   let lenx = x.x.len
@@ -266,8 +289,13 @@ proc parseAtomicRegex(x: ParserState): Option[Regex] =
                     Regex(regexType: REGEX_IN, in_chset: z.get[0], in_chrange: z.get[1]))
     of '\\':  # NormalEsc
       let z = x.parseSingleCharEsc
-      if z.isNone: x.raiseErrorWithReason("Invalid escape sequence")
-      return some(Regex(regexType: CHARACTER, ch: z.get))
+      if z.isSome():
+        if z.get.len <= 1:
+          return some(Regex(regexType: CHARACTER, ch: z.get[0]))
+        else:
+          return some(Regex(regexType: REGEX_IN, in_chset: z.get, in_chrange: @[]))
+      else:
+        x.raiseErrorWithReason("Invalid escape sequence")
     of '(':  # Grouping
       if not x.expect("(?:"): x.raiseErrorWithReason("Invalid syntax for grouping")
       var r: seq[Regex] = @[]
@@ -392,12 +420,13 @@ proc parseRetainingClause(x: ParserState): Option[seq[TokenDeclRetaining]] =
   
 proc parseClause(x: ParserState): Option[TokenDecl] =
   var exported: bool = true
-  if x.skipWhite.expect("~"): exported = false
-  let name = x.skipWhite.takeName
+  
+  if x.skipWhiteAndComment.expect("~"): exported = false
+  let name = x.skipWhiteAndComment.takeName
   if name.isNone: return none(TokenDecl)
-  if not x.skipWhite.expect("="): x.raiseErrorWithReason("Equal sign required but none found.")
-  let regex = x.skipWhite.parseRegex
-  let retainingClause = x.skipWhite.parseRetainingClause
+  if not x.skipWhiteAndComment.expect("="): x.raiseErrorWithReason("Equal sign required but none found.")
+  let regex = x.skipWhiteAndComment.parseRegex
+  let retainingClause = x.skipWhiteAndComment.parseRetainingClause
   return some(makeTokenDecl(name.get, regex, if retainingClause.isSome: retainingClause.get else: @[], exported))
   
 proc parseLexerSource*(x: string): Program =
